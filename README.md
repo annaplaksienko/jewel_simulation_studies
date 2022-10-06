@@ -1,10 +1,8 @@
 # jewel_simulation_studies
-Code for the simulation used to study the performance of the jewel method
+Code for the simulation used to study the performance of the _jewel 2.0_ method.
 
-This will be updated by Monday September 12
+REMEMBER TO CHANGE THE PATH 
 
-You can generate data with
-–generateData_reqire + data_generation functions
+Please note that despite my best efforts
 
-You can us resulting data, when you open the following files:
 

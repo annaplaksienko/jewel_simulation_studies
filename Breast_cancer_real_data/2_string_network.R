@@ -49,7 +49,7 @@ approx_degree[names(top_vertices)] <- 10
 
 #some genes are isolated according to STRING database. 
 #Identify them and give them degree 1 too
-load("X_real_data.Rdata")
+load("X_real_data.RData")
 all_genes <- colnames(X[[1]])
 isolated_acc_string <- all_genes %in% names(degrees)
 isolated_acc_string <- all_genes[!isolated_acc_string]
@@ -60,8 +60,6 @@ names(approx_degree2) <- isolated_acc_string
 approx_degree <- c(approx_degree, approx_degree2)
 
 #construct the weights
-W <- 1 /sqrt(approx_degree %*% t(approx_degree))
-W <- W / max(W)
-W_list <- list(W, W, W, W)
+W_list <- constructWeights(approx_degree, K = 4)
 
 save(list = c("G_string", "W_list"), file = "string_network.Rdata")

@@ -1,4 +1,5 @@
 library(igraph)
+library(jewel)
 
 path <- "/home/anna/0_jewel/jewel_simulation_studies/Breast_cancer_real_data"
 setwd(path)
@@ -27,15 +28,14 @@ for (i in 1:dim(diff_names)[1]) {
 G_string <- graph_from_edgelist(as.matrix(string[, 1:2]), directed = FALSE)
 
 #how many vertices are in the network?
-p <- vcount(G_string)
-p
+vcount(G_string)
 #how many edges?
 gsize(G_string)
 #calculate the "true" degrees
 degrees <- degree(G_string)
 
-#find how many vertices with the highest degree to choose (1%)
-top <- ceiling(p * 0.01)
+#find how many vertices with the highest degree to choose (in this example, 3%)
+top <- ceiling(900 * 0.03)
 top
 #find the vertices with the highest degree
 top_vertices <- sort(degrees, decreasing = TRUE)[1:top]
@@ -62,4 +62,5 @@ approx_degree <- c(approx_degree, approx_degree2)
 #construct the weights
 W_list <- constructWeights(approx_degree, K = 4)
 
-save(list = c("G_string", "W_list"), file = "string_network.Rdata")
+save(list = c("G_string", "W_list", "top_vertices"), 
+     file = "string_network_3%_hub10.Rdata")

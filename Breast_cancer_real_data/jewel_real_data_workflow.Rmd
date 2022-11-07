@@ -1,0 +1,188 @@
+---
+title: "jewel 2.0 real data studies"
+output: html_document
+date: "2022-11-07"
+---
+This file describes the workflow to replicate real data studies carried out in the [jewel paper](https://www.mdpi.com/2227-7390/10/21/3983). Please note that since we used the stability procedure that is based on random sampling and we did not set seed (which should have been done in principle), results may vary slightly from run to run.
+
+You can skip each step and just use already constructed objects and files. Note that you need to specify your own path or load manually.
+
+### Step 1: construct the input
+
+This step shows you how to assemble the list of input data matrices *X* from original .txt files. If you want to skip it, use ready *X_real_data.Rdata*.
+
+Go to <https://gdc.cancer.gov/about-data/publications/brca_2012>, *RNA Expression -\> Data Matrix Files* and then download *BRCA.exp.547.med.txt* and *BRCA.547.PAM50.SigClust.Subtypes.txt*
+
+```{r construct the input}
+#specify the folder where these files are
+#path <- "PUT YOUR PATH HERE" 
+path <- "/Users/annapla/Documents/1_CNR/5_jewel/jewel_studies/jewel_simulation_studies/Breast_cancer_real_data"
+setwd(path)
+data <- read.delim("BRCA.exp.547.med.txt", header = FALSE) 
+#save first row and first column to use as rownames and colnames 
+samples <- data[1, -1] 
+genes <- data[-1, 1] 
+#delete first row and first column and convert data frame to numeric matrix 
+data <- data[-1, -1] 
+data <- as.matrix(data) 
+data <- apply(data, 2, as.numeric) 
+#assign rownames and colnames 
+rownames(data) <- genes 
+colnames(data) <- samples
+
+dim(data)
+
+#are there any absent measurements? 
+sum(is.na(data)) 
+#replace them with 0 (for the sake of demonstration, in principle imputation can be a better option)
+data[is.na(data)] <- 0 
+sum(is.na(data))
+```
+
+Now let's reduce the number of genes in question by selecting only some pathways. Here we use the *kegg_pathways_July_2022.Rdata* object with the data but you can download it yourself.
+
+```{r reduce the number of genes}
+#if (!require("BiocManager", quietly = TRUE))
+  #ainstall.packages("BiocManager")
+
+#BiocManager::install("gage")
+library(gage) 
+
+#download pathways 
+#hsa.kegg.gs <- kegg.gsets(species = "hsa", id.type = "kegg", check.new = TRUE) 
+#kegg.sets <- hsa.kegg.gs$kg.sets 
+#save not to download next time 
+#save(kegg.sets, file = "kegg_pathways_July_2022.RData") 
+load("kegg_pathways_July_2022.RData") 
+
+#to convert to gene symbols 
+data(egSymb) 
+#select pathways 
+p1 <- eg2sym(kegg.sets$`hsa05224 Breast cancer`) 
+p2 <- eg2sym(kegg.sets$`hsa04915 Estrogen signaling pathway`) 
+p3 <- eg2sym(kegg.sets$`hsa04115 p53 signaling pathway`) 
+p4 <- eg2sym(kegg.sets$`hsa04912 GnRH signaling pathway`) 
+p5 <- eg2sym(kegg.sets$`hsa04151 PI3K-Akt signaling pathway`) 
+p6 <- eg2sym(kegg.sets$`hsa03320 PPAR signaling pathway`) 
+p7 <- eg2sym(kegg.sets$`hsa04310 Wnt signaling pathway`) 
+p8 <- eg2sym(kegg.sets$`hsa04064 NF-kappa B signaling pathway`) 
+p9 <- eg2sym(kegg.sets$`hsa04330 Notch signaling pathway`) 
+p10 <- eg2sym(kegg.sets$`hsa04340 Hedgehog signaling pathway`)
+
+#drop repetitions of genes in pathways 
+pathways <- unique(c(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10)) 
+length(pathways)
+
+#delete TBL1Y because as of August 2022 it was not found in STRING database with which we compare 
+pathways <- pathways[pathways != "TBL1Y"] 
+length(pathways)
+
+#reduce the matrix only to gene present in pathways 
+data_red <- data[rownames(data) %in% pathways, ] 
+dim(data_red) 
+#save gene names to have input for STRING database 
+#write(rownames(data_red), file = "gene_names.txt")
+
+#load the metadata so we can split by cancer subtypes
+meta <- read.delim("BRCA.547.PAM50.SigClust.Subtypes.txt") 
+table(meta$Type) 
+table(meta$PAM50) 
+#choose only tumor tissue 
+meta <- meta[meta$Type == "tumor", ] 
+table(meta$PAM50)
+
+#divide the matrix by subtypes 
+X <- vector(mode = "list", length = 4) 
+names(X) <- names(table(meta$PAM50))[1:4] 
+X[[1]] <- t(data_red[, samples %in% meta$Sample[meta$PAM50 == "Basal"]]) 
+X[[2]] <- t(data_red[, samples %in% meta$Sample[meta$PAM50 == "Her2"]]) 
+X[[3]] <- t(data_red[, samples %in% meta$Sample[meta$PAM50 == "LumA"]]) 
+X[[4]] <- t(data_red[, samples %in% meta$Sample[meta$PAM50 == "LumB"]]) 
+sapply(X, dim) 
+#save the matrices 
+#save(X, file = "X_real_data.RData")
+```
+
+### Step 2: construct the "true" network for comparison
+
+#### Retrieve the network from STRING
+
+This step describes describes how you can retrieve protein-protein interaction network from the STRING database. If you want to skip it, use ready *string_network.tsv*
+
+Use *gene_names.txt* as an input for the [STRING database](https://string-db.org/). *Search -\> Multiple Proteins -\> Add gene names list -\> Choose Homo Sapiens organism -\> Continue -\> Mapping (download the file of how STRING matched gene names) -\> Continue -\> Settings -\> Active interaction sources "Experiments" and "Databases" -\> Minimum required interaction score "Highest confidence 0.9" -\> Update -\> Exports -\> Download "as short tabular text output: tsv".*
+
+#### Construct network object in R
+
+This step describes how to make a graph object from .tsv network and calculate weights for minimization problem. If you want to skip it, use ready *string_network_3%\_hub10.Rdata*.
+
+```{r construct network object}
+library(igraph)
+library(jewel)
+
+#read string network
+string <- read.table(file = "string_network.tsv", sep = '\t', header = FALSE)
+
+#read string mapping of gene names (maybe STRING changed the names of some of our input genes)
+string_mapping <- read.table(file = "string_mapping.tsv", 
+                             quote = "", sep = '\t')[, c(2, 4)]
+#which rows don't match?
+diff_names <- string_mapping[, 1] != string_mapping[, 2]
+#extract those genes whose names were changed by STRING
+diff_names <- string_mapping[diff_names, ]
+#how many genes like that there are?
+dim(diff_names)[1]
+#in the network, change names from STRING to our version to match with the data
+for (i in 1:dim(diff_names)[1]) {
+  original_name <- diff_names[i, 1]
+  string_name <- diff_names[i, 2]
+  string$V1 <- gsub(string_name, original_name, string$V1)
+  string$V2 <- gsub(string_name, original_name, string$V2)
+}
+
+#make a graph object
+G_string <- graph_from_edgelist(as.matrix(string[, 1:2]), directed = FALSE)
+
+#how many vertices are in the network?
+vcount(G_string)
+#how many edges?
+gsize(G_string)
+```
+
+Now we simulate having some apriori information about which vertices are hubs in the network (let's say, we found this in the literature or an expert consulted us). To simulate this, we choose 3% of the vertices with the highest degree and put their degree to 10 and put the degrees of all other vertices to 1. Then we construct weights of each edge (see the paper for the explanation).
+
+```{r construct weights for minimization problem}
+#calculate the "true" degrees
+degrees <- degree(G_string)
+
+#find how many vertices with the highest degree to choose (in this example, 3%)
+top <- ceiling(900 * 0.03)
+top
+#find the vertices with the highest degree
+top_vertices <- sort(degrees, decreasing = TRUE)[1:top]
+top_vertices
+names(top_vertices)
+
+#give all vertices degree 1 ("not hub") and those vertices degree 10 ("hub")
+approx_degree <- rep(1, vcount(G_string))
+names(approx_degree) <- names(degrees)
+approx_degree[names(top_vertices)] <- 10
+
+#some genes are isolated according to STRING database. 
+#Identify them and give them degree 1 too
+#load("X_real_data.RData")
+all_genes <- colnames(X[[1]])
+isolated_acc_string <- all_genes %in% names(degrees)
+isolated_acc_string <- all_genes[!isolated_acc_string]
+approx_degree2 <- rep(1, length(isolated_acc_string))
+names(approx_degree2) <- isolated_acc_string
+
+#combine all the vertices
+approx_degree <- c(approx_degree, approx_degree2)
+
+#construct the weights
+W_list <- constructWeights(approx_degree, K = 4)
+
+#save(list = c("G_string", "W_list", "top_vertices"), 
+#     file = "string_network_3%_hub10.Rdata")
+```
+

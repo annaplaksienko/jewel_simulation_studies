@@ -3,6 +3,7 @@ title: "jewel 2.0 real data studies"
 output: html_document
 date: "2022-11-07"
 ---
+
 This file describes the workflow to replicate real data studies carried out in the [jewel paper](https://www.mdpi.com/2227-7390/10/21/3983). Please note that since we used the stability procedure that is based on random sampling and we did not set seed (which should have been done in principle), results may vary slightly from run to run.
 
 You can skip each step and just use already constructed objects and files. Note that you need to specify your own path or load manually.
@@ -148,7 +149,7 @@ vcount(G_string)
 gsize(G_string)
 ```
 
-Now we simulate having some apriori information about which vertices are hubs in the network (let's say, we found this in the literature or an expert consulted us). To simulate this, we choose 3% of the vertices with the highest degree and put their degree to 10 and put the degrees of all other vertices to 1. Then we construct weights of each edge (see the paper for the explanation).
+Now we simulate having some apriori information about which vertices are hubs in the network (let's say, we found this in the literature or an expert consulted us). To simulate this, we choose 3% of the vertices with the highest degree and put their degree to 10 and put the degrees of all other vertices to 1. Then we construct weights of each edge (see the paper for the explanation). If you want to skip this step, use *string_network_3%_hub10.Rdata*.
 
 ```{r construct weights for minimization problem}
 #calculate the "true" degrees
@@ -184,5 +185,67 @@ W_list <- constructWeights(approx_degree, K = 4)
 
 #save(list = c("G_string", "W_list", "top_vertices"), 
 #     file = "string_network_3%_hub10.Rdata")
+```
+
+### Step 3: apply *jewel*
+
+Now that you have data matrices *X* and weights matrices *W_list*, you are ready to apply *jewel* method. We will use stability selection procedure to reduce the number of false positives. The ide is the following: _n\_k / 2_ samples are randomly chosen in each dataset _stability_nsubsets = 25_ times and then *jewel* method is applied to each subset. In the final estimate, we include only the edges that appear in at least _stability_frac = 0.8_ proportion of the subsets. Note that this step can be slow, so use if you want to skip it, use *jewel_results.Rdata* for the next steps.
+ 
+```{r apply jewel}
+res <- jewel(X, lambda1 = 0.35, W = W_list, stability = TRUE)
+#save("res", file = "jewel_results.Rdata")
+```
+
+Let's access the results: how many edges do we have and how many are in overlap with "true" STRING network?
+
+```{r results: overlap with STRING}
+#save list of different graphs for each class and their common graph
+G_list <- res$G_list
+G <- res$CommonG
+#convert matrices to graphs for comparison with STRING and igraph plotting
+G_list_graph <- lapply(G_list, function(x) 
+  graph_from_adjacency_matrix(x, mode = "undirected"))
+G_graph <- graph_from_adjacency_matrix(G, mode = "undirected")
+
+#save(list = c("G_list_graph", "G_graph", "G_string"), file = "graphs.Rdata")
+
+#how many edges?
+sapply(G_list_graph, gsize)
+gsize(G_graph)
+#how many edges are
+sapply(G_list_graph, function(x) gsize(graph.intersection(x, G_string)))
+gsize(graph.intersection(G_graph, G_string))
+
+#use hypergeometric test to assess the significance of the edge overlaps, i.e. if overlap with the STRING networks is significant compared to random graphs of the same size. 
+num_vert <- 900
+all_poss_edges <- num_vert * (num_vert - 1) / 2
+in_string <- gsize(G_string)
+not_in_string <- all_poss_edges - in_string
+pred_edges <- sapply(G_list_graph, gsize)
+pred_edges
+inters_edges <- sapply(G_list_graph, function(x) 
+  gsize(graph.intersection(x, G_string)))
+inters_edges
+hypergeomtest <- phyper(q = inters_edges, m = in_string, n = not_in_string, 
+                        k = pred_edges, lower.tail = FALSE)
+hypergeomtest
+hypergeomtest < 10^(-20)
+```
+
+
+```{r results: hubs}
+#let's see if our hubs coincide with those we've provided implicitly through weights as apriori information
+true_hubs <- names(top_vertices)
+true_hubs
+sapply(G_list_graph, function(x)
+  sum(names(sort(degree(x), decreasing = TRUE)[1:27]) %in% true_hubs))
+#yes, all the top 27 hubs coincide with those we've provided
+```
+
+### Step 4: plot the networks
+
+First, we will delete isolated vertices to reduce the order of graphs for plotting.
+```{r delete isolated vertices}
+
 ```
 

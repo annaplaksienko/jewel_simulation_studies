@@ -16,8 +16,7 @@ Go to <https://gdc.cancer.gov/about-data/publications/brca_2012>, *RNA Expressio
 
 ```{r construct the input}
 #specify the folder where these files are
-#path <- "PUT YOUR PATH HERE" 
-path <- "/Users/annapla/Documents/1_CNR/5_jewel/jewel_studies/jewel_simulation_studies/Breast_cancer_real_data"
+path <- "PUT YOUR PATH HERE" 
 setwd(path)
 data <- read.delim("BRCA.exp.547.med.txt", header = FALSE) 
 #save first row and first column to use as rownames and colnames 

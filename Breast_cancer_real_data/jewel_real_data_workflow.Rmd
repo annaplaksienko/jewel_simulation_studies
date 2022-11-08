@@ -149,7 +149,7 @@ vcount(G_string)
 gsize(G_string)
 ```
 
-Now we simulate having some apriori information about which vertices are hubs in the network (let's say, we found this in the literature or an expert consulted us). To simulate this, we choose 3% of the vertices with the highest degree and put their degree to 10 and put the degrees of all other vertices to 1. Then we construct weights of each edge (see the paper for the explanation). If you want to skip this step, use *string_network_3%_hub10.Rdata*.
+Now we simulate having some apriori information about which vertices are hubs in the network (let's say, we found this in the literature or an expert consulted us). To simulate this, we choose 3% of the vertices with the highest degree and put their degree to 10 and put the degrees of all other vertices to 1. Then we construct weights of each edge (see the paper for the explanation). If you want to skip this step, use \*string_network_3%\_hub10.Rdata\*.
 
 ```{r construct weights for minimization problem}
 #calculate the "true" degrees
@@ -189,8 +189,8 @@ W_list <- constructWeights(approx_degree, K = 4)
 
 ### Step 3: apply *jewel*
 
-Now that you have data matrices *X* and weights matrices *W_list*, you are ready to apply *jewel* method. We will use stability selection procedure to reduce the number of false positives. The ide is the following: _n\_k / 2_ samples are randomly chosen in each dataset _stability_nsubsets = 25_ times and then *jewel* method is applied to each subset. In the final estimate, we include only the edges that appear in at least _stability_frac = 0.8_ proportion of the subsets. Note that this step can be slow, so use if you want to skip it, use *jewel_results.Rdata* for the next steps.
- 
+Now that you have data matrices *X* and weights matrices *W_list*, you are ready to apply *jewel* method. We will use stability selection procedure to reduce the number of false positives. The ide is the following: *n_k / 2* samples are randomly chosen in each dataset *stability_nsubsets = 25* times and then *jewel* method is applied to each subset. In the final estimate, we include only the edges that appear in at least *stability_frac = 0.8* proportion of the subsets. Note that this step can be slow, so use if you want to skip it, use *jewel_results.Rdata* for the next steps.
+
 ```{r apply jewel}
 res <- jewel(X, lambda1 = 0.35, W = W_list, stability = TRUE)
 #save("res", file = "jewel_results.Rdata")
@@ -232,7 +232,6 @@ hypergeomtest
 hypergeomtest < 10^(-20)
 ```
 
-
 ```{r results: hubs}
 #let's see if our hubs coincide with those we've provided implicitly through weights as apriori information
 true_hubs <- names(top_vertices)
@@ -245,7 +244,85 @@ sapply(G_list_graph, function(x)
 ### Step 4: plot the networks
 
 First, we will delete isolated vertices to reduce the order of graphs for plotting.
-```{r delete isolated vertices}
 
+```{r delete isolated vertices}
+#are there any vertices that have no incident edges in any graphs?
+union <- do.call(union, G_list_graph)
+gsize(union)
+vcount(union)
+isolated <- which(degree(union) == 0)
+union_no_iso <- delete.vertices(union, isolated)
+gsize(union_no_iso)
+vcount(union_no_iso)
+
+#yes, we have some isolated vertices, let's delete them
+G_list_plot <- lapply(G_list_graph, function(x) delete.vertices(x, isolated))
+G_plot <- delete.vertices(G_graph, isolated)
 ```
 
+Now, let's construct graphs for plotting in a way that edges in the intersection of all classes are grey and class-specific edges are all different colours.
+```{r construct graphs for plotting}
+#edges in the intersection are grey
+E(G_plot)$color <- "dimgrey"
+
+#construct the different between each graph and the intersection. Make it specific colour
+G_specific <- lapply(G_list_plot, function(x) difference(x, G_plot))
+colours_k <- c("red2", "chartreuse4", "darkturquoise", "deeppink3")
+K <- length(colours_k)
+for (k in 1:K) {
+  E(G_specific[[k]])$color <- colours_k[k]
+}
+
+#now put the intersection and class-specific edges together again
+#P.S. maybe there is a more efficient way of doing this
+G_list_coloured <- lapply(G_specific, function(x) union(x, G_plot))
+for (k in 1:K) {
+  edge_colors <- edge_attr(G_list_coloured[[k]], "color_1")
+  specific <- which(is.na(edge_attr(G_list_coloured[[k]], "color_1")))
+  edge_colors[specific] <- edge_attr(G_list_coloured[[k]], "color_2")[specific]
+  G_list_coloured[[k]] <- set_edge_attr(G_list_coloured[[k]], "color", 
+                                     value = edge_colors)
+}
+```
+
+Now we plot the graphs.
+```{r plot the graphs}
+vsize <- 0
+vcol <- "white"
+vfrcol <- "grey"
+vlabcex <- 0.7
+vlabcol <- "darkslateblue"
+vlabfont <- 2
+#may be useful to generate layout a couple of times to really get something nice
+layout <- layout_nicely(G_list_coloured[[1]])
+
+#we use tkplot to manually adjust the layout and then use it for other graphs too
+#after we move vertices, we retrieve new coordinates as the new layout
+coords <- tkplot(G_list_coloured[[1]], layout = layout, vertex.size = vsize)
+layout2 <- tkplot.getcoords(coords)
+
+par(mar = c(1, 1, 1, 1) + .1)
+par(mfrow = c(2, 2))
+plot.igraph(G_list_coloured$LumA, layout = layout2,
+            vertex.size = vsize, vertex.color = vcol, 
+            vertex.frame.color = vfrcol, vertex.label.cex = vlabcex, 
+            vertex.label.color = vlabcol, vertex.label.font = vlabfont,
+            main = "Luminal A")
+plot.igraph(G_list_coloured$LumB, layout = layout2,
+            vertex.size = vsize, vertex.color = vcol, 
+            vertex.frame.color = vfrcol, vertex.label.cex = vlabcex, 
+            vertex.label.color = vlabcol, vertex.label.font = vlabfont,
+            main = "Luminal B")
+plot.igraph(G_list_coloured$Basal, layout = layout2,
+            vertex.size = vsize, vertex.color = vcol, 
+            vertex.frame.color = vfrcol, vertex.label.cex = vlabcex, 
+            vertex.label.color = vlabcol, vertex.label.font = vlabfont,
+            main = "Basal-like")
+plot.igraph(G_list_coloured$Her2, layout = layout2,
+            vertex.size = vsize, vertex.color = vcol, 
+            vertex.frame.color = vfrcol, vertex.label.cex = vlabcex, 
+            vertex.label.color = vlabcol, vertex.label.font = vlabfont,
+            main = "HER2-enriched")
+
+
+```
